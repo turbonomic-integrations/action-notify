@@ -6,10 +6,12 @@ shopt -s nullglob
 
 deploy=1
 name=@name@
+base_name=@name@
 app=@name@
 relenv=@env@
 team=@team@
 namespace=@namespace@
+cron='cron.yaml'
 ns=$(kubectl get namespaces | grep "$namespace" | cut -d' ' -f1)
 pods=$(kubectl get pods -l app="$app" -n "$namespace" 2> /dev/null | wc -l)
 opts=()
@@ -37,30 +39,21 @@ invalid_option() {
 }
 
 remove_deployment() {
-  # local pods=$(kubectl get pods -l app="$app" -n "$namespace" 2> /dev/null | wc -l)
-  #
-  # if [[ "$pods" -gt 1 ]]; then
-  #   heading 'Existing pods found'
-  #   heading 'Waiting for pods to terminate...'
-  #
-  #   kubectl scale deployment --replicas=0 $name --timeout=1m -n "$namespace"
-  #   kubectl delete pods -l app="$app" --wait=true -n "$namespace"
-  #   sleep 30s
-  # fi
-
   heading 'Checking for previously deployed resources...'
-  #kubectl delete deployment -l app="$app" -n "$namespace" 2> /dev/null
-  #kubectl delete configmap -l app="$app" -n "$namespace" 2> /dev/null
-  #kubectl delete service -l app="$app" -n "$namespace" 2> /dev/null
-  kubectl delete cronjob -l app="$app" -n "$namespace" 2> /dev/null
+
+  if [[ $uninstall_all -eq 1 ]]; then
+    kubectl delete cronjob -l app="$app" -n "$namespace" 2> /dev/null
+  else
+    kubectl delete cronjob "$name" -n "$namespace" 2> /dev/null
+  fi
 }
 
 remove_images() {
-  local imgcnt=$(sudo docker images | grep "$name" | wc -l)
+  local imgcnt=$(sudo docker images | grep "$base_name" | wc -l)
 
   if [[ $imgcnt -ge 1 ]]; then
     heading 'Removing existing container image...'
-    sudo docker images | grep "$name" | awk '{print $3}' | uniq | xargs sudo docker image rm -f
+    sudo docker images | grep "$base_name" | awk '{print $3}' | uniq | xargs sudo docker image rm -f
   fi
 }
 
@@ -73,15 +66,42 @@ remove_config() {
 }
 
 remove_secrets() {
-  remove_auth
-  remove_config
-  #kubectl delete secrets -l app="$app" -n "$namespace"
+  if [[ $uninstall_all -eq 1 ]]; then
+    kubectl delete secrets -l app="$app" -n "$namespace"
+  else
+    remove_auth
+    remove_config
+  fi
 }
 
 uninstall() {
+  if [[ $uninstall_all -eq 1 ]]; then
+    heading "Removing all '${app}' deployments from ${namespace}"
+  else
+    heading "Removing '${name}' from ${namespace}"
+  fi
+
   remove_secrets
   remove_deployment
-  remove_images
+
+  local namecnt=$(kubectl get cronjob -l app="$app" -n $namespace | sed '1d' | wc -l)
+
+  if [[ namecnt -gt 0 ]]; then
+    echo "Container image appears to still be in use, skipping..."
+  else
+    remove_images
+  fi
+}
+
+create_named_cron() {
+  heading "Copying default config to named config..."
+  echo "cron.yaml => ${1}"
+  cp cron.yaml "${1}"
+
+  sed -ri -e "s/(\s+name:) ${base_name}/\1 ${name}/gi" "$1"
+  sed -ri -e "s/(\sgenerateName:) ${base_name}/\1 ${name}/gi" "$1"
+  sed -ri -e "s/(\s+name:) ${base_name}-auth/\1 ${name}-auth/gi" "$1"
+  sed -ri -e "s/(\s+name:) ${base_name}-config/\1 ${name}-config/gi" "$1"
 }
 
 create_auth() {
@@ -250,12 +270,6 @@ create_config() {
     heading 'Email settings'
     read -p 'FROM address: ' email_from
     opts+=( --from-literal=TR_EMAIL_FROM="$email_from" )
-    # read -p "TO address(es) [${_emailto}]: " email_to
-    # if [ -n "$email_to" ]; then opts+=( --from-literal=TR_EMAIL_TO="$email_to" ); fi
-    # read -p 'CC address(es): ' email_cc
-    # if [ -n "$email_cc" ]; then  opts+=( --from-literal=TR_EMAIL_CC="$email_cc" ); fi
-    # read -p 'BCC address(es): ' email_bcc
-    # if [ -n "$email_bcc" ]; then  opts+=( --from-literal=TR_EMAIL_BCC="$email_bcc" ); fi
   fi
 
   required_params 'xl_host' 'xl_port' 'xl_ssl' 'smtp_host' 'smtp_port' 'smtp_tls' 'email_from' 'xl_groups' 'xl_tags' 'xl_actiontypes'
@@ -323,9 +337,7 @@ _END
 deploy() {
   heading 'Deploying container image to local cache...'
 
-  local extip=$(ip route get 1 | awk '{print $NF;exit}')
-
-  for f in "${name}"*.tar.xz
+  for f in "${base_name}"*.tar.xz
   do
     sudo docker load < "$f"
   done
@@ -344,9 +356,19 @@ deploy() {
     create_config
   fi
 
-  heading 'Applying deployment...'
-  kubectl apply -f cron.yaml
+  if [ "$name" != "$base_name" ]; then
+    # cron="${name}-cron.yaml"
+    #
+    # if [ ! -f "$cron" ]; then
+    #   create_named_cron $cron
+    # fi
 
+    heading "Applying named deployment ${name}..."
+  else
+    heading 'Applying deployment...'
+  fi
+
+  kubectl apply -f "$cron"
   heading 'Done'
 }
 
@@ -369,37 +391,48 @@ do
       -h|--help)
       echo "deploy.sh [OPTIONS]"
       echo ""
-      echo "  --uninstall       Remove existing deployement completely, including secrets."
+      echo "  --name            Install using the given object name. For multiple deployments."
       echo ""
       echo "  --auth            Update the API credentials only."
       echo ""
       echo "  --keep-auth       Keep current API credentials, if set. Cannot be used with"
       echo "                    the --auth option."
       echo ""
-      echo "  --config          Reconfigure reporting settings."
+      echo "  --config          Reconfigure settings without redeploying."
       echo ""
-      echo "  --keep-config     Keep current reporting settings, if set. Cannot be used with"
-      echo "                    the --config option."
+      echo "  --keep-config     Keep current settings, if set. Cannot be used with the"
+      echo "                    --config option."
       echo ""
-      echo "  --import <file>   Reconfigure using the provided filename for <file>."
+      echo "  --import <file>   Configure using the provided filename for <file>."
       echo ""
       echo "  --template        Dump a config template to disk named 'template'."
+      echo ""
+      echo "  --make-cron       When used with --name this copies the cron.yaml to the given"
+      echo "                    name for creating additional cronjobs."
       echo ""
       echo "  --job             Run a stand-alone job after deployment."
       echo ""
       echo "  --job-only        Run a job only, do not redeploy."
       echo ""
+      echo "  --uninstall       Remove existing deployement completely, including secrets."
+      echo "                    If the --all flag is also specified, all named deployments"
+      echo "                    of the app will be removed."
+      echo ""
       shift
       exit
       ;;
-      --uninstall)
-      heading "Removing '${name}' from ${namespace}"
-      uninstall
-      exit
+      --name)
+      name="$2"
+      shift
+      shift
       ;;
-      --status)
-      kubectl get pods -n "${namespace}"
-      exit
+      --uninstall)
+      uninstall=1
+      shift
+      ;;
+      --all)
+      uninstall_all=1
+      shift
       ;;
       --template)
       write_template
@@ -434,14 +467,27 @@ do
       deploy=0
       shift
       ;;
-      --job)
-      job=1
+      --copy-cron|--named-cron|--make-cron)
+      makecron=1
+      shift
       shift
       ;;
-      --jobonly|--job-only)
+      --start-job|--run-job|--job-only)
       job=1
       deploy=0
       shift
+      ;;
+      --cron|--cronjob|--cronjobs)
+      kubectl get cronjob -n "${namespace}"
+      exit
+      ;;
+      --job|--jobs)
+      kubectl get jobs -n "${namespace}"
+      exit
+      ;;
+      --pod|--pods|--status)
+      kubectl get pods -n "${namespace}"
+      exit
       ;;
       *)
       shift
@@ -450,6 +496,15 @@ do
 done
 
 echo ""
+
+if [ "$name" != "$base_name" ]; then
+  cron="${name}-cron.yaml"
+fi
+
+if [[ $uninstall -eq 1 ]]; then
+  uninstall
+  exit
+fi
 
 if [[ $auth -eq 1 ]]; then
   if [[ $keepauth -gt 0 ]]; then invalid_option; fi
@@ -463,7 +518,21 @@ if [[ $config -eq 1 ]]; then
   create_config
 fi
 
+if [[ $makecron -eq 1 ]]; then
+  create_named_cron $cron
+  exit
+fi
+
 if [[ $deploy -eq 1 ]]; then
+  if [ "$name" != "$base_name" ]; then
+    create_named_cron $cron
+  fi
+
+  if [ ! -f "$cron" ]; then
+    echo "Required file '${cron}' missing"
+    exit
+  fi
+
   heading "Preparing to deploy '${name}' to ${namespace}"
   if [ -z $keepauth ]; then remove_auth; fi
   if [ -z $keepconfig ]; then remove_config; fi

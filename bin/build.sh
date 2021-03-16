@@ -4,12 +4,15 @@ basedir=./
 build=build
 dest=container
 namespace=turbointegrations
-ver=1.0.0.dev1
+ver=1.0.0.dev4
 relenv="prod"
 team="turbointegrations"
-name=tr-resize-notification
+name=tr-action-notify
 projectid=$(cat project.uuid)
 buildid=$(git log -n 1 --pretty="%H" | cut -c1-8)
+base_image="turbointegrations/base:1.1.25-alpine"
+container_repo="turbointegrations"
+tag="${container_repo}/${name}:1.0.0.dev4"
 cwd=$(pwd)
 deploy_user="turbo"
 deploy_host="vmt-xl"
@@ -48,16 +51,17 @@ buildcontainer() {
 
   echo ""
   heading "Building $container ..."
-  echo "---------------------------------------------------------------------- Start build -"
-  docker build --no-cache -f "$1" -t "$container" "$4"
+  spacer "---------------------------------------------------------------------- Start build -"
+  docker build --no-cache -f "$1" -t "$container" "$4" -t "$tag"
   code="$?"
-  echo "------------------------------------------------------------------------ End build -"
+  spacer "------------------------------------------------------------------------ End build -"
 
   if [ "$code" -eq 1 ]; then
     error "Build failed"
     exit 1
   fi
 
+  echo -n "$tag" > ../.dockertag
   heading "Exporting $container ..."
   docker save "$container" > "${archive}.tar"
 
@@ -113,13 +117,12 @@ if $opt_build; then
 
   heading "Cleaning up old builds..."
   rm -rf ./*
+
+  heading "Updating base images..."
+  docker pull "$base_image"
+else
+  heading "Container build skipped..."
 fi
-
-
-heading "Updating base images..."
-docker pull alpine
-docker pull turbointegrations/base:1-alpine
-
 
 heading "Copying resource files..."
 cp ../src/docker/*.Dockerfile .
@@ -153,11 +156,11 @@ done
 
 if $opt_build; then
   buildcontainer 'base.Dockerfile' "$name" "$ver" "$dest"
-fi
 
-echo ''
-heading "Build complete" $'\360\237\215\272'
-echo ''
+  echo ''
+  heading "Build complete" $'\360\237\215\272'
+  echo ''
+fi
 
 if $opt_deploy; then
   heading "Deploying build to ${deploy_host} ..."

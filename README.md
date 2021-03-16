@@ -14,9 +14,18 @@
 
 
 ## Description <a name="description"></a>
-Sends email notifications of pending generated actions on one or more groups to
-a tagged workload owner, at a prescribed schedule via cron. Groups, tags, and
-action types are configurable.
+Action Notify is a cron based notification job designed to send email notifications
+regarding pending actions to designated users. The job consumes a list of groups
+to scan for specific action types. Any pending actions found of the given type(s)
+in the given group(s) will then be scanned for any of the tag(s) provided, and if
+found the email address in the tag will be sent a notification of the pending action.
+Only the first matching tag will be used, and a default or catch-all email address
+may be specified, as well as CC and BCC fields as necessary. Notifications will
+be grouped based on recipient to reduce the volume of messages received by default.
+
+In the scenario where some groups require different action types, multiple cron
+configurations should be deployed under different names, one for each setup required.
+
 
 ******
 
@@ -27,7 +36,13 @@ action types are configurable.
 
 - External SMTP service.
 
-- Kubernetes equivalent environment for deployment if not using the Turbonomic XL OVA.
+- Kubernetes equivalent<sup>1</sup> environment for deployment if not using the Turbonomic XL OVA.
+
+
+<sup>[1]</sup> Generated images may be deployed to any environment which can run
+Docker images, however, the build and deployment system provided herein are
+designed for use with Kubernetes and Kubernetes compatible systems using `kubectl`
+commands. See also [manual](#manual) install instructions.
 
 ******
 
@@ -77,12 +92,14 @@ your specific use case. The parameters are as follows:
 - **name** - Project deployment name
 - **projectid** - Project ID label
 - **buildid** - Specific build ID label
+- **container_repo** - Repository name to publish images to
+- **tag** - Standardized Dockerhub image tag
 
 The following options are only used with the `--deploy` mode, for transferring
-the build output to a designated test machine.
-- **deploy_user** - Username (pre-shared key authentication required)
+the build output to a designated test machine using pre-shared key authentication.
+- **deploy_user** - Username
 - **deploy_host** - Target test system
-- **deploy_dest** - Folder on target test system to deposit files (must exist)
+- **deploy_dest** - Folder on target test system to deposit files
 
 </details>
 
@@ -112,23 +129,31 @@ template for the import config may be dumped using the `--template` option. See
 ```bash
 deploy.sh [OPTIONS]
 
-  --uninstall       Remove existing deployement completely, including secrets.
+  --name            Install using the given object name. For multiple deployments.
 
   --auth            Update the API credentials only.
 
   --keep-auth       Keep current API credentials, if set.
 
-  --config          Reconfigure reporting settings.
+  --config          Reconfigure settings without redeploying.
 
-  --keep-config     Keep current reporting settings, if set.
+  --keep-config     Keep current settings, if set. Cannot be used with the
+                    --config option.
 
-  --import <file>   Reconfigure using the provided filename for <file>.
+  --import <file>   Configure using the provided filename for <file>.
 
   --template        Dump a config template to disk named 'template'.
+
+  --make-cron       When used with --name this copies the cron.yaml to the given
+                    name for creating additional cronjobs.
 
   --job             Run a stand-alone job after deployment.
 
   --job-only        Run a job only, do not redeploy.
+
+  --uninstall       Remove existing deployement completely, including secrets.
+                    If the --all flag is also specified, all named deployments
+                    of the app will be removed.
 ```
 
 

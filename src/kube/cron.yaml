@@ -51,7 +51,7 @@ spec:
           containers:
             - name: @name@
               image: @name@:@version@
-              imagePullPolicy: Never
+              imagePullPolicy: IfNotPresent
               envFrom:
                 - secretRef:
                     name: @name@-auth
