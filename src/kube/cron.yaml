@@ -50,11 +50,9 @@ spec:
         spec:
           containers:
             - name: @name@
-              image: @name@:@version@
+              image: @image@
               imagePullPolicy: IfNotPresent
               envFrom:
-                - secretRef:
-                    name: @name@-auth
                 - secretRef:
                     name: @name@-config
           restartPolicy: Never

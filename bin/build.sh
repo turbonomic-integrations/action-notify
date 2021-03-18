@@ -12,7 +12,7 @@ projectid=$(cat project.uuid)
 buildid=$(git log -n 1 --pretty="%H" | cut -c1-8)
 base_image="turbointegrations/base:1.1.25-alpine"
 container_repo="turbointegrations"
-tag="${container_repo}/${name}:1.0.0.dev4"
+image_tag="${container_repo}/${name}:1.0.0.dev4"
 cwd=$(pwd)
 deploy_user="turbo"
 deploy_host="vmt-xl"
@@ -52,7 +52,7 @@ buildcontainer() {
   echo ""
   heading "Building $container ..."
   spacer "---------------------------------------------------------------------- Start build -"
-  docker build --no-cache -f "$1" -t "$container" "$4" -t "$tag"
+  docker build --no-cache -f "$1" -t "$container" "$4" -t "$image_tag"
   code="$?"
   spacer "------------------------------------------------------------------------ End build -"
 
@@ -61,7 +61,7 @@ buildcontainer() {
     exit 1
   fi
 
-  echo -n "$tag" > ../.dockertag
+  echo -n "$image_tag" > ../.dockertag
   heading "Exporting $container ..."
   docker save "$container" > "${archive}.tar"
 
@@ -69,7 +69,7 @@ buildcontainer() {
 }
 
 replace() {
-  gsed -i "s/${2}/${3}/g" "$1"
+  gsed -i "s#${2}#${3}#g" "$1"
 }
 
 
@@ -152,6 +152,7 @@ do
   replace "$f" "@namespace@" "$namespace"
   replace "$f" "@version@" "$ver"
   replace "$f" "@env@" "$relenv"
+  replace "$f" "@image@" "$image_tag"
 done
 
 if $opt_build; then

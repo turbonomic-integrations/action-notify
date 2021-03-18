@@ -12,8 +12,6 @@ relenv=@env@
 team=@team@
 namespace=@namespace@
 cron='cron.yaml'
-ns=$(kubectl get namespaces | grep "$namespace" | cut -d' ' -f1)
-pods=$(kubectl get pods -l app="$app" -n "$namespace" 2> /dev/null | wc -l)
 opts=()
 
 # these values are for displaying defaults only, changing them here will NOT
@@ -34,14 +32,18 @@ heading() {
 }
 
 invalid_option() {
-  echo "Invalid option combination, check --help for details."
+  if [[ -z $1 ]]; then
+    echo "Invalid option combination, check --help for details."
+  else
+    echo "Invalid option '$1', check --help for details."
+  fi
   exit 1
 }
 
 remove_deployment() {
   heading 'Checking for previously deployed resources...'
 
-  if [[ $uninstall_all -eq 1 ]]; then
+  if [[ $1 -eq 1 ]]; then
     kubectl delete cronjob -l app="$app" -n "$namespace" 2> /dev/null
   else
     kubectl delete cronjob "$name" -n "$namespace" 2> /dev/null
@@ -57,32 +59,23 @@ remove_images() {
   fi
 }
 
-remove_auth() {
-  kubectl delete secrets "${name}-auth" -n ${namespace} 2&> /dev/null
-}
-
 remove_config() {
-  kubectl delete secrets "${name}-config" -n ${namespace} 2&> /dev/null
-}
-
-remove_secrets() {
-  if [[ $uninstall_all -eq 1 ]]; then
+  if [[ $1 -eq 1 ]]; then
     kubectl delete secrets -l app="$app" -n "$namespace"
   else
-    remove_auth
-    remove_config
+    kubectl delete secrets "${name}-config" -n ${namespace} 2&> /dev/null
   fi
 }
 
 uninstall() {
-  if [[ $uninstall_all -eq 1 ]]; then
+  if [[ $1 -eq 1 ]]; then
     heading "Removing all '${app}' deployments from ${namespace}"
   else
     heading "Removing '${name}' from ${namespace}"
   fi
 
-  remove_secrets
-  remove_deployment
+  remove_config $1
+  remove_deployment $1
 
   local namecnt=$(kubectl get cronjob -l app="$app" -n $namespace | sed '1d' | wc -l)
 
@@ -104,34 +97,6 @@ create_named_cron() {
   sed -ri -e "s/(\s+name:) ${base_name}-config/\1 ${name}-config/gi" "$1"
 }
 
-create_auth() {
-  echo
-  heading 'Creating Turbonomic API authentication secrets...'
-
-  if [ -z "$xl_username" ]; then
-    read -p 'Username: ' xl_username
-  else
-    echo "Username: '${xl_username}'"
-  fi
-
-  read -sp 'Password: ' _p
-
-  auth=$(echo -n "$xl_username:$_p" | base64)
-  echo
-
-  kubectl create secret generic "${name}-auth" -n "$namespace" \
-    --from-literal=TR_AUTH="$auth"
-
-  unset _p
-  unset auth
-
-  kubectl label secret "${name}-auth" -n "$namespace" \
-    environment="$relenv" \
-    team="$team" \
-    app="$app"
-  echo
-}
-
 required_params() {
   while [[ $# -gt 0 ]]
   do
@@ -144,11 +109,51 @@ required_params() {
   done
 }
 
+# var, config name, value
+set_var() {
+  #local __retvar=$1
+  #eval "$__retvar+=( --from-literal=${2}=\"${3}\" )"
+  $opts+=( --from-literal=${2}=\"${3}\" )
+}
+
+# user, pass, config name
+auth_var() {
+  auth=$(echo -n "$1:$2" | base64)
+  set_var $3 $auth
+}
+
+# label, config name, value
 import_var() {
   if [ -n "$3" ]; then
-    local __retvar=$1
-    echo " - $2: $3"
-    eval "$__retvar+=( --from-literal=${4}=\"${3}\" )"
+    if [ ! -z "$1" ]; then
+      echo " - $1: $3"
+    fi
+
+    set_var $2 $3
+  fi
+}
+
+# prompt, default, config name, required
+prompt_var() {
+  local value
+  local label="$1"
+
+  if [[ $4 -eq 1 ]]; then
+    local label="${label}*"
+  fi
+
+  if [ -n "$2" ]; then
+    read -p "$label [${2}]: " value
+    value="${value:-$2}"
+  else
+    read -p "$label: " value
+  fi
+
+  if [ -n "$value" ]; then
+    set_var $3 $value
+  elif [[ $4 -eq 1 && -z "$value" ]]; then
+    echo "Parameters marked with '*' are required."
+    exit
   fi
 }
 
@@ -158,24 +163,34 @@ create_config() {
 
   if [[ $import -eq 1 ]]; then
     echo "Turbonomic Instance"
-    import_var opts 'Host' "$xl_host" 'TR_HOST'
-    import_var opts 'Port' "$xl_port" 'TR_PORT'
-    import_var opts 'SSL' "$xl_ssl" 'TR_SSL'
-    import_var opts 'Groups' "$xl_groups" 'TR_GROUPS'
-    import_var opts 'Email tags' "$xl_tags" 'TR_TAGS'
-    import_var opts 'Action types' "$xl_actiontypes" 'TR_ACTION_TYPES'
+    import_var 'Host' 'TR_HOST' "$xl_host"
+    import_var 'Port' 'TR_PORT' "$xl_port"
+    import_var 'SSL' 'TR_SSL' "$xl_ssl"
+    import_var 'Groups' 'TR_GROUPS' "$xl_groups"
+    import_var 'Email tags' 'TR_TAGS' "$xl_tags"
+    import_var 'Action types' 'TR_ACTION_TYPES' "$xl_actiontypes"
+
+    if [ -z "$xl_username" ]; then
+      read -p 'Username: ' xl_username
+    else
+      echo "Username: '${xl_username}'"
+    fi
+
+    read -sp 'Password: ' _p
+    auth_var 'TR_AUTH' $xl_username $_p
+    unset _p
+    unset auth
+
     echo
     echo "SMTP Service"
-    import_var opts 'Host' "$smtp_host" 'TR_SMTP_HOST'
-    import_var opts 'Port' "$smtp_port" 'TR_SMTP_PORT'
-    import_var opts 'TLS' "$smtp_tls" 'TR_SMTP_TLS'
+    import_var 'Host' 'TR_SMTP_HOST' "$smtp_host"
+    import_var 'Port' 'TR_SMTP_PORT' "$smtp_port"
+    import_var 'TLS' 'TR_SMTP_TLS' "$smtp_tls"
 
     if [[ -n $smtp_username ]]; then
       echo " - Username: ${smtp_username}"
       read -sp "Password: " _p
-      auth=$(echo -n "$smtp_username:$_p" | base64)
-      opts+=( --from-literal=TR_SMTP_AUTH="$auth" )
-
+      auth_var 'TR_SMTP_AUTH' $smtp_username $_p
       unset _p
       unset auth
       echo
@@ -183,83 +198,75 @@ create_config() {
 
     echo
     echo "Email Message"
-    import_var opts 'From' "$email_from" 'TR_EMAIL_FROM'
-    import_var opts 'To' "$email_to" 'TR_EMAIL_TO'
-    import_var opts 'CC' "$email_cc" 'TR_EMAIL_CC'
-    import_var opts 'BCC' "$email_bcc" 'TR_EMAIL_BCC'
-    import_var opts 'Subject' "$email_subject" 'TR_EMAIL_SUBJECT'
-    import_var opts 'Subject (Merged)' "$email_subject_multi" 'TR_EMAIL_SUBJECT_MULTI'
-    import_var opts 'Body' "$email_body" 'TR_EMAIL_BODY'
-    import_var opts 'Body as HTML' "$email_html" 'TR_EMAIL_HTML'
-    import_var opts 'Entry header' "$email_part_header" 'TR_EMAIL_PART_HEADER'
-    import_var opts 'Entry footer' "$email_part_footer" 'TR_EMAIL_PART_FOOTER'
-    import_var opts 'Entry divider' "$email_div" 'TR_EMAIL_DIV'
+    import_var 'From' 'TR_EMAIL_FROM' "$email_from"
+    import_var 'To' 'TR_EMAIL_TO' "$email_to"
+    import_var 'CC' 'TR_EMAIL_CC' "$email_cc"
+    import_var 'BCC' 'TR_EMAIL_BCC' "$email_bcc"
+    import_var 'Subject' 'TR_EMAIL_SUBJECT' "$email_subject"
+    import_var 'Subject (Merged)' 'TR_EMAIL_SUBJECT_MULTI' "$email_subject_multi"
+    import_var 'Body' 'TR_EMAIL_BODY' "$email_body"
+    import_var 'Body as HTML' 'TR_EMAIL_HTML' "$email_html"
+    import_var 'Entry header' 'TR_EMAIL_PART_HEADER' "$email_part_header"
+    import_var 'Entry footer' 'TR_EMAIL_PART_FOOTER' "$email_part_footer"
+    import_var 'Entry divider' 'TR_EMAIL_DIV' "$email_div"
 
+    required_params 'xl_host' 'xl_port' 'xl_ssl' 'smtp_host' 'smtp_port' 'smtp_tls' 'email_from' 'xl_groups' 'xl_tags' 'xl_actiontypes'
   else
-    echo 'Default values are shown in brackets [] where available. You may leave'
-    echo 'the value empty to keep the default. Where no value is required, you may'
-    echo 'also leave the value empty to set it to "null".'
+    echo 'Default values are shown in brackets [] where available, and required'
+    echo 'values are denoted with a *. You may leave the value empty to keep the'
+    echo 'default. Where no value is required, you may also leave the value empty'
+    echo 'to set it to "null".'
 
     echo
-    heading 'Turbonomic server settings'
+    heading 'Turbonomic server connection settings'
     read -p 'Do you want to use Turbonomic server defaults (y/n)? ' ch
     if [ "$ch" == "${ch#[Yy]}" ]; then
-      read -p "Hostname [${_xlhost}]: " xl_host
-      xl_host="${xl_host:-$_xlhost}"
-      if [ -n "$xl_host" ]; then  opts+=( --from-literal=TR_HOST="$xl_host" ); fi
+      prompt_var 'Hostname' "$_xlhost" 'TR_HOST'
 
       read -p 'Use SSL (y/n)? ' ch
       if [ "$ch" != "${ch#[Yy]}" ]; then
-        opts+=( --from-literal=TR_SSL="True" )
+        set_var 'TR_SSL' 'True'
         _xlport=443
       fi
 
-      read -p "Port [${_xlport}]: " xl_port
-      xl_port="${xl_port:-$_xlport}"
-      opts+=( --from-literal=TR_PORT="$xl_port" )
+      prompt_var 'Port' "$_xlport" 'TR_PORT'
     else
-      xl_host="$_xlhost"
-      xl_port="$_xlport"
-      xl_ssl="$_xlssl"
-      opts+=( --from-literal=TR_HOST="$xl_host" )
-      opts+=( --from-literal=TR_PORT="$xl_port" )
+      set_var 'TR_HOST' $_xlhost
+      set_var 'TR_PORT' $_xlport
+      set_var 'TR_SSL' $_xlssl
     fi
 
-    read -p "Turbo group(s) to monitor: " xl_groups
-    xl_groups="${xl_groups:-$_xlgroups}"
-    opts+=( --from-literal=TR_GROUPS="$xl_groups" )
-    read -p "Turbo tag(s) for email recipient: " xl_tags
-    xl_tags="${xl_tags:-$_xltags}"
-    opts+=( --from-literal=TR_TAGS="$xl_tags" )
-    read -p "Action Type(s): " xl_actiontypes
-    xl_actiontypes="${xl_actiontypes:-$_xlactiontypes}"
-    opts+=( --from-literal=TR_ACTION_TYPES="$xl_actiontypes" )
+    echo
+    heading 'Turbonomic server service account'
+    read -p 'Username: ' xl_username
+    read -sp 'Password: ' _p
+
+    auth_var $xl_username $_p 'TR_AUTH'
+    unset _p
+    unset auth
+    echo
+
+    prompt_var 'Turbo group(s) to monitor' '' 'TR_GROUPS'
+    prompt_var 'Turbo tag(s) for email recipient' '' 'TR_TAGS'
+    prompt_var 'Action Type(s)' '' 'TR_ACTION_TYPES'
 
     echo
     heading 'SMTP settings'
-    read -p 'SMTP hostname: ' smtp_host
-    opts+=( --from-literal=TR_SMTP_HOST="$smtp_host" )
+    prompt_var 'SMTP hostname' '' 'TR_SMTP_HOST'
 
     read -p 'Use TLS (y/n)? ' ch
     if [ "$ch" != "${ch#[Yy]}" ]; then
-      smtp_tls=True
-      opts+=( --from-literal=TR_SMTP_TLS="True" )
+      set_var 'TR_SMTP_TLS' 'True'
       _smtpport=587
     fi
 
-    smtp_tls="${smtp_tls:-$_smtptls}"
-
-    read -p "SMTP port [${_smtpport}]: " smtp_port
-    smtp_port="${smtp_port:-$_smtpport}"
-    opts+=( --from-literal=TR_SMTP_PORT="$smtp_port" )
+    prompt_var 'SMTP Port' "$_smtpport" 'TR_SMTP_PORT'
 
     read -p "Does '${smtp_host}' require authentication (y/n)? " ch
     if [ "$ch" != "${ch#[Yy]}" ]; then
       read -p 'Username: ' _u
       read -sp 'Password: ' _p
-      auth=$(echo -n "$_u:$_p" | base64)
-      opts+=( --from-literal=TR_SMTP_AUTH="$auth" )
-
+      auth_var $_u $_p 'TR_SMTP_AUTH'
       unset _u
       unset _p
       unset auth
@@ -268,11 +275,8 @@ create_config() {
 
     echo
     heading 'Email settings'
-    read -p 'FROM address: ' email_from
-    opts+=( --from-literal=TR_EMAIL_FROM="$email_from" )
+    prompt_var 'FROM address' '' 'TR_EMAIL_FROM'
   fi
-
-  required_params 'xl_host' 'xl_port' 'xl_ssl' 'smtp_host' 'smtp_port' 'smtp_tls' 'email_from' 'xl_groups' 'xl_tags' 'xl_actiontypes'
 
   echo
   kubectl create secret generic "${name}-config" -n "$namespace" "${opts[@]}"
@@ -337,32 +341,23 @@ _END
 deploy() {
   heading 'Deploying container image to local cache...'
 
-  for f in "${base_name}"*.tar.xz
+  for f in "$base_name"*.tar.xz
   do
     sudo docker load < "$f"
   done
 
-  if [ -z "${ns}" ]; then
+  ns=$(kubectl get namespaces | grep "$namespace" | cut -d' ' -f1)
+  if [ -z "$ns" ]; then
     heading "Creating '$namespace' namesapce..."
     kubectl create namespace "$namespace"
   fi
 
-  secrets=$(kubectl get secrets -n $namespace | grep "${name}-auth" | cut -d' ' -f1)
-  if [ -z "${secrets}" ]; then
-    create_auth
-  fi
-  secrets=$(kubectl get secrets -n $namespace | grep "${name}-config" | cut -d' ' -f1)
-  if [ -z "${secrets}" ]; then
+  secrets=$(kubectl get secrets -n "$namespace" | grep "${name}-config" | cut -d' ' -f1)
+  if [ -z "$secrets" ]; then
     create_config
   fi
 
   if [ "$name" != "$base_name" ]; then
-    # cron="${name}-cron.yaml"
-    #
-    # if [ ! -f "$cron" ]; then
-    #   create_named_cron $cron
-    # fi
-
     heading "Applying named deployment ${name}..."
   else
     heading 'Applying deployment...'
@@ -375,13 +370,14 @@ deploy() {
 runjob() {
   heading 'Running single job instance...'
 
-  kubectl create job "${name}-manual-run" --from=cronjob/${name} -n "${namespace}"
+  kubectl create job "${name}-manual-run" --from=cronjob/${name} -n "$namespace"
 
   echo
   echo 'You will need to cleanup the job manually.'
   echo "Example: kubectl delete job ${name}-manual-run -n ${namespace}"
 }
 
+### main ###
 
 while [[ $# -gt 0 ]]
 do
@@ -391,37 +387,31 @@ do
       -h|--help)
       echo "deploy.sh [OPTIONS]"
       echo ""
-      echo "  --name            Install using the given object name. For multiple deployments."
+      echo "  -n, --name            Install using the given object name. For multiple deployments."
       echo ""
-      echo "  --auth            Update the API credentials only."
+      echo "  -c, --config <file>   Import the given file previously generated by --template as"
+      echo "                        the configuration"
       echo ""
-      echo "  --keep-auth       Keep current API credentials, if set. Cannot be used with"
-      echo "                    the --auth option."
+      echo "  -k, --keep-config     Keep current settings, if set. Cannot be used with the"
+      echo "                        --update option."
       echo ""
-      echo "  --config          Reconfigure settings without redeploying."
+      echo "  -t, --template        Dump a config template to disk named 'template'."
       echo ""
-      echo "  --keep-config     Keep current settings, if set. Cannot be used with the"
-      echo "                    --config option."
+      echo "  -m, --make-cron       When used with --name this copies the cron.yaml to the given"
+      echo "                        name for creating additional cronjobs."
       echo ""
-      echo "  --import <file>   Configure using the provided filename for <file>."
+      echo "  --run-job             Run a job only, do not redeploy."
       echo ""
-      echo "  --template        Dump a config template to disk named 'template'."
+      echo "  -u, --update          Update the configuration only, does not deploy the cronjob."
       echo ""
-      echo "  --make-cron       When used with --name this copies the cron.yaml to the given"
-      echo "                    name for creating additional cronjobs."
-      echo ""
-      echo "  --job             Run a stand-alone job after deployment."
-      echo ""
-      echo "  --job-only        Run a job only, do not redeploy."
-      echo ""
-      echo "  --uninstall       Remove existing deployement completely, including secrets."
-      echo "                    If the --all flag is also specified, all named deployments"
-      echo "                    of the app will be removed."
+      echo "  --uninstall           Remove existing deployement completely, including secrets."
+      echo "                        If the --all flag is also specified, all named deployments"
+      echo "                        of the app will be removed."
       echo ""
       shift
       exit
       ;;
-      --name)
+      -n|--name)
       name="$2"
       shift
       shift
@@ -430,7 +420,7 @@ do
       uninstall=1
       shift
       ;;
-      --all)
+      -a|--all)
       uninstall_all=1
       shift
       ;;
@@ -439,37 +429,27 @@ do
       exit
       ;;
       --terminal)
-      kubectl exec -n "${namespace}" --stdin --tty $(kubectl get pods -n "${namespace}" | grep -e "${name}-manual-run\S*" -o) -- /bin/bash
+      kubectl exec -n "$namespace" --stdin --tty $(kubectl get pods -n "$namespace" | grep -e "${name}-manual-run\S*" -o) -- /bin/bash
       exit
-      ;;
-      --keep-auth)
-      keepauth=1
-      shift
       ;;
       --keep-config)
       keepconfig=1
       shift
       ;;
-      --import)
+      -c|--config)
+      import=1
       file="$2"
       source "$2"
-      import=1
       shift
       shift
       ;;
-      --auth)
-      auth=1
-      deploy=0
-      shift
-      ;;
-      --config)
-      config=1
+      -u|--update)
+      update=1
       deploy=0
       shift
       ;;
       --copy-cron|--named-cron|--make-cron)
       makecron=1
-      shift
       shift
       ;;
       --start-job|--run-job|--job-only)
@@ -478,41 +458,37 @@ do
       shift
       ;;
       --cron|--cronjob|--cronjobs)
-      kubectl get cronjob -n "${namespace}"
+      kubectl get cronjob -n "$namespace"
       exit
       ;;
       --job|--jobs)
-      kubectl get jobs -n "${namespace}"
+      kubectl get jobs -n "$namespace"
       exit
       ;;
       --pod|--pods|--status)
-      kubectl get pods -n "${namespace}"
+      kubectl get pods -n "$namespace"
       exit
       ;;
       *)
-      shift
+      invalid_option $1
       ;;
   esac
 done
 
 echo ""
 
+# set name first
 if [ "$name" != "$base_name" ]; then
+  echo "Using name '$name'..."
   cron="${name}-cron.yaml"
 fi
 
 if [[ $uninstall -eq 1 ]]; then
-  uninstall
+  uninstall $uninstall_all
   exit
 fi
 
-if [[ $auth -eq 1 ]]; then
-  if [[ $keepauth -gt 0 ]]; then invalid_option; fi
-  remove_auth
-  create_auth
-fi
-
-if [[ $config -eq 1 ]]; then
+if [[ $update -eq 1 ]]; then
   if [[ $keepconfig -gt 0 ]]; then invalid_option; fi
   remove_config
   create_config
@@ -524,7 +500,7 @@ if [[ $makecron -eq 1 ]]; then
 fi
 
 if [[ $deploy -eq 1 ]]; then
-  if [ "$name" != "$base_name" ]; then
+  if [[ "$name" != "$base_name" && ! -f "$cron" ]]; then
     create_named_cron $cron
   fi
 
@@ -534,7 +510,6 @@ if [[ $deploy -eq 1 ]]; then
   fi
 
   heading "Preparing to deploy '${name}' to ${namespace}"
-  if [ -z $keepauth ]; then remove_auth; fi
   if [ -z $keepconfig ]; then remove_config; fi
   remove_deployment
   deploy
