@@ -113,7 +113,7 @@ required_params() {
 set_var() {
   #local __retvar=$1
   #eval "$__retvar+=( --from-literal=${2}=\"${3}\" )"
-  $opts+=( --from-literal=${2}=\"${3}\" )
+  $opts+=( --from-literal=${2}="${3}" )
 }
 
 # user, pass, config name
