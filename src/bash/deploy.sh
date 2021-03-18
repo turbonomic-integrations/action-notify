@@ -13,6 +13,7 @@ team=@team@
 namespace=@namespace@
 cron='cron.yaml'
 opts=()
+req=$'\e[31m*\e[0m'
 
 # these values are for displaying defaults only, changing them here will NOT
 # change the system defaults in the container
@@ -109,11 +110,11 @@ required_params() {
   done
 }
 
-# var, config name, value
+# config name, value
 set_var() {
   #local __retvar=$1
   #eval "$__retvar+=( --from-literal=${2}=\"${3}\" )"
-  $opts+=( --from-literal=${2}="${3}" )
+  opts+=( --from-literal=${1}="${2}" )
 }
 
 # user, pass, config name
@@ -136,23 +137,24 @@ import_var() {
 # prompt, default, config name, required
 prompt_var() {
   local value
-  local label="$1"
 
   if [[ $4 -eq 1 ]]; then
-    local label="${label}*"
+    local prompt="${1}${req}"
+  else
+    local prompt="$1"
   fi
 
   if [ -n "$2" ]; then
-    read -p "$label [${2}]: " value
+    read -p "$prompt [${2}]: " value
     value="${value:-$2}"
   else
-    read -p "$label: " value
+    read -p "$prompt: " value
   fi
 
   if [ -n "$value" ]; then
     set_var $3 $value
   elif [[ $4 -eq 1 && -z "$value" ]]; then
-    echo "Parameters marked with '*' are required."
+    echo "Parameters marked with '${req}' are required."
     exit
   fi
 }
@@ -213,7 +215,7 @@ create_config() {
     required_params 'xl_host' 'xl_port' 'xl_ssl' 'smtp_host' 'smtp_port' 'smtp_tls' 'email_from' 'xl_groups' 'xl_tags' 'xl_actiontypes'
   else
     echo 'Default values are shown in brackets [] where available, and required'
-    echo 'values are denoted with a *. You may leave the value empty to keep the'
+    echo "values are denoted with a ${req}. You may leave the value empty to keep the"
     echo 'default. Where no value is required, you may also leave the value empty'
     echo 'to set it to "null".'
 
@@ -238,21 +240,21 @@ create_config() {
 
     echo
     heading 'Turbonomic server service account'
-    read -p 'Username: ' xl_username
-    read -sp 'Password: ' _p
+    read -p "Username${req}: " xl_username
+    read -sp "Password${req}: " _p
 
     auth_var $xl_username $_p 'TR_AUTH'
     unset _p
     unset auth
     echo
 
-    prompt_var 'Turbo group(s) to monitor' '' 'TR_GROUPS'
-    prompt_var 'Turbo tag(s) for email recipient' '' 'TR_TAGS'
-    prompt_var 'Action Type(s)' '' 'TR_ACTION_TYPES'
+    prompt_var 'Turbo group(s) to monitor' '' 'TR_GROUPS' 1
+    prompt_var 'Turbo tag(s) for email recipient' '' 'TR_TAGS' 1
+    prompt_var 'Action Type(s)' '' 'TR_ACTION_TYPES' 1
 
     echo
     heading 'SMTP settings'
-    prompt_var 'SMTP hostname' '' 'TR_SMTP_HOST'
+    prompt_var 'SMTP hostname' '' 'TR_SMTP_HOST' 1
 
     read -p 'Use TLS (y/n)? ' ch
     if [ "$ch" != "${ch#[Yy]}" ]; then
@@ -262,10 +264,10 @@ create_config() {
 
     prompt_var 'SMTP Port' "$_smtpport" 'TR_SMTP_PORT'
 
-    read -p "Does '${smtp_host}' require authentication (y/n)? " ch
+    read -p "Does the SMTP host require authentication (y/n)? " ch
     if [ "$ch" != "${ch#[Yy]}" ]; then
-      read -p 'Username: ' _u
-      read -sp 'Password: ' _p
+      read -p "Username${req}: " _u
+      read -sp "Password${req}: " _p
       auth_var $_u $_p 'TR_SMTP_AUTH'
       unset _u
       unset _p
@@ -275,7 +277,7 @@ create_config() {
 
     echo
     heading 'Email settings'
-    prompt_var 'FROM address' '' 'TR_EMAIL_FROM'
+    prompt_var 'FROM address' '' 'TR_EMAIL_FROM' 1
   fi
 
   echo
@@ -339,12 +341,14 @@ _END
 }
 
 deploy() {
-  heading 'Deploying container image to local cache...'
+  if [ -f "$base_name"*.tar.xz ]; then
+    heading 'Deploying local container image to cache...'
 
-  for f in "$base_name"*.tar.xz
-  do
-    sudo docker load < "$f"
-  done
+    for f in "$base_name"*.tar.xz
+    do
+      sudo docker load < "$f"
+    done
+  fi
 
   ns=$(kubectl get namespaces | grep "$namespace" | cut -d' ' -f1)
   if [ -z "$ns" ]; then
