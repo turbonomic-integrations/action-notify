@@ -1,0 +1,58 @@
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: @name@
+  namespace: @namespace@
+  labels:
+    environment: @env@
+    team: @team@
+    app: @name@
+    project-id: @projectid@
+    build-id: @buildid@
+    version: @version@
+spec:
+  #  * : Expands to all values for the field
+  #  , : List separator
+  #  - : Range separator
+  #  / : Specifies step for ranges
+  #
+  #          ┌───────────── minute (0 - 59)
+  #          │ ┌───────────── hour (0 - 23)
+  #          │ │ ┌───────────── day of the month (1 - 31)
+  #          │ │ │ ┌───────────── month (1 - 12)
+  #          │ │ │ │ ┌───────────── day of the week (0 - 6) (Sunday to Saturday)
+  #          │ │ │ │ │
+  #          * * * * *
+  schedule: "* 5 * * 6"
+  concurrencyPolicy: Forbid
+  suspend: false
+  jobTemplate:
+    metadata:
+      generateName: @name@
+      labels:
+        environment: @env@
+        team: @team@
+        app: @name@
+        project-id: @projectid@
+        build-id: @buildid@
+        version: @version@
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            environment: @env@
+            team: @team@
+            app: @name@
+            project-id: @projectid@
+            build-id: @buildid@
+            version: @version@
+        spec:
+          containers:
+            - name: @name@
+              image: @image@
+              imagePullPolicy: IfNotPresent
+              envFrom:
+                - secretRef:
+                    name: @name@-config
+          restartPolicy: Never
