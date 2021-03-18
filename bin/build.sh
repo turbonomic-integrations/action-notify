@@ -62,6 +62,7 @@ buildcontainer() {
   fi
 
   echo -n "$image_tag" > ../.dockertag
+  echo -n "$ver" > ../.release
   heading "Exporting $container ..."
   docker save "$container" > "${archive}.tar"
 
