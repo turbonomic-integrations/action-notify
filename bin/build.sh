@@ -4,7 +4,7 @@ basedir=./
 build=build
 dest=container
 namespace=turbointegrations
-ver=1.0.0.dev6
+ver=1.0.0
 relenv="prod"
 team="turbointegrations"
 name=tr-action-notify
@@ -12,7 +12,7 @@ projectid=$(cat project.uuid)
 buildid=$(git log -n 1 --pretty="%H" | cut -c1-8)
 base_image="turbointegrations/base:1.1.25-alpine"
 container_repo="turbointegrations"
-image_tag="${container_repo}/${name}:1.0.0.dev6"
+image_tag="${container_repo}/${name}:1.0.0"
 cwd=$(pwd)
 deploy_user="turbo"
 deploy_host="vmt-xl"
