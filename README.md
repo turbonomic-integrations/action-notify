@@ -218,7 +218,7 @@ auth=$(echo -n "<user>:<pass>" | base64)
 
 ##### Windows Powershell
 ```
-$auth = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("test"))
+$auth = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("<user>:<pass>"))
 ```
 
 #### Create secret
