@@ -1,4 +1,4 @@
-# Action Notify - Scheduled Email Notification of Turbonomic Actions
+-notify# Action Notify - Scheduled Email Notification of Turbonomic Actions
 
 ## Table of Contents
 
@@ -223,19 +223,20 @@ $auth = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("test"))
 
 #### Create secret
 ```bash
-kubectl create secret generic tr-action-notification-auth -n turbointegrations \
-  --from-literal=TR_AUTH="$auth"
+kubectl create secret generic tr-action-notify-config -n turbointegrations \
+  --from-literal=TR_AUTH="$auth" \
+  --from-literal=...
 
-kubectl label secret tr-action-notification-auth -n turbointegrations \
+kubectl label secret tr-action-notify-config -n turbointegrations \
   environment=prod \
   team="turbointegrations" \
-  app="tr-action-notification"
+  app="tr-action-notify"
 ```
 
 #### Available Configuration Parameters
 
 The following list of parameters are available to be configured for the report
-via the `tr-action-notification-config` secret. Parameters marked with [R]
+via the `tr-action-notify-config` secret. Parameters marked with [R]
 are required.
 
 
@@ -243,6 +244,8 @@ are required.
   - **TR_HOST** - Turbonomic hostname or IP address: Default: `api.turbonomic.svc.cluster.local`
 
   - **TR_PORT** - Server port: Default `8080`
+
+  - **TR_AUTH** [R] - API service account authentication string
 
   - **TR_SSL** - Use SSL when connecting: Default: `False`
 
@@ -259,7 +262,7 @@ are required.
 
   - **TR_SMTP_TLS** - Use TLS when connecting: Default: `False`
 
-  - **TR_SMTP_AUTH** - SMTP auth string
+  - **TR_SMTP_AUTH** - SMTP authentication string
 
 
 ##### Email Message Settings
@@ -342,15 +345,15 @@ jobs that were created manually based on the cron.
 Manual uninstallation follows the reverse of the manual installation.
 
 ```bash
-kubectl delete secrets -l app="tr-action-notification" -n "turbointegrations"
-kubectl delete cronjob -l app="tr-action-notification" -n "turbointegrations"
+kubectl delete secrets -l app="tr-action-notify" -n "turbointegrations"
+kubectl delete cronjob -l app="tr-action-notify" -n "turbointegrations"
 ```
 
 The process of removing the container images from the local cache will differ based
 on which container runtime you are using. If using dockershim, the process is as
 follows:
 ```bash
-sudo docker images | grep "tr-action-notification" | awk '{print $3}' | uniq | xargs sudo docker image rm -f
+sudo docker images | grep "tr-action-notify" | awk '{print $3}' | uniq | xargs sudo docker image rm -f
 ```
 
 Note: Manually created jobs must be cleared by the user.
