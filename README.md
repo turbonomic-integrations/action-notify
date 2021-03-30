@@ -116,7 +116,7 @@ for your environment.
 ### Linux Installation <a name="linux"></a>
 
 ```bash
-./deploys.sh
+./deploy.sh
 ```
 
 The 'turbointegrations' namespace will be created if it does not exist. The user will be prompted for the Turbonomic API credentials and other configuration paramters as required.
