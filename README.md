@@ -120,7 +120,7 @@ for your environment.
 ```
 
 The 'turbointegrations' namespace will be created if it does not exist. The user will be prompted for the Turbonomic API credentials and other configuration paramters as required.
-A configuration file may be imported using the `--import <filename>` option. A
+A configuration file may be imported using the `--config <filename>` option. A
 template for the import config may be dumped using the `--template` option. See
 `deploy.sh --help` for complete options.
 
