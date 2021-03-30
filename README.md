@@ -1,4 +1,4 @@
--notify# Action Notify - Scheduled Email Notification of Turbonomic Actions
+# Action Notify - Scheduled Email Notification of Turbonomic Actions
 
 ## Table of Contents
 
