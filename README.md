@@ -290,6 +290,17 @@ are required.
 
   - **TR_TIMESTAMP** - Timestamp format for `{TIMESTAMP}` values. Default: `%Y-%m-%d %H:%M:%S`
 
+##### Advanced Email Message Settings
+  - **TR_EMAIL_HEADER** - Email message body header. This must include the HTML declaration if sending HTML messages.
+
+  - **TR_EMAIL_DIV** - Email multi (grouped by `EMAIL_GROUP_MESSAGES`) divider.
+
+  - **TR_EMAIL_PART_HEADER** - Header added before each call to `TR_EMAIL_BODY`.
+
+  - **TR_EMAIL_PART_FOOTER** - Footer added after each call to `TR_EMAIL_BODY`.
+
+  - **TR_EMAIL_FOOTER** - Email message body footer. This must include the HTML closing if sending HTML messages.
+
 ##### Debugging Settings
   - **TR_DISABLE_SSL_WARN** - Disable SSL warnings. Default: `True`
 
