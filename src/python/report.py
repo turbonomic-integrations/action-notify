@@ -165,6 +165,10 @@ def required(name, value=None):
         raise RequiredValueMissing(f"Required value null or missing: {name}")
 
 
+def split_trim(string, delim=','):
+    return [x.strip() for x in string.split(delim)]
+
+
 def parse_string(input, **kwargs):
     if input is not None and '{' in input:
         return input.format(
@@ -306,8 +310,8 @@ def get_action_detail(action, tags, default_email):
             if validate_email(action['target']['tags'][t][0]):
                 to = action['target']['tags'][t][0]
                 break
-        except KeyError:
-            pass
+        except (IndexError, KeyError, TypeError):
+            continue
 
     if to == default_email:
         _msg(f"No email tag found, using default address: {to}", level='debug', prefix=prefix)
@@ -325,9 +329,9 @@ def main():
     prefix = 'main'
     _host = f"{HOST}:{PORT}" if PORT else HOST
     notifications = {}
-    tags = EMAIL_TAGS.split(',')
-    groups = GROUPS.split(',')
-    types = ACTION_TYPES.split(',')
+    tags = split_trim(EMAIL_TAGS)
+    groups = split_trim(GROUPS)
+    types = split_trim(ACTION_TYPES)
     vmtsess = vc.Connection(host=_host, auth=AUTH, ssl=SSL)
 
     for grp in groups:
@@ -336,8 +340,8 @@ def main():
             _msg(f"Processing group [{uuid}]:[{grp}]", prefix=prefix)
 
             actions = vmtsess.get_group_actions(uuid, pager=True)
-        except (IndexError, KeyError):
-            _msg(f"Error processing group [{grp}], skipping", prefix=prefix)
+        except (IndexError, KeyError, TypeError):
+            _msg(f"Error processing group [{grp}], name does not exist, skipping", prefix=prefix)
             continue
 
         while not actions.complete:
