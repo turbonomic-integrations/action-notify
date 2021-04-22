@@ -5,6 +5,7 @@ build=build
 name=tr-action-notify
 dest=tr-action-notify
 tag=`cat ./.release`
+release="v$tag"
 repo=turbonomic-integrations/action-notify
 archive="${name}-${tag}.tar.gz"
 cwd=$(pwd)
@@ -27,4 +28,4 @@ COPYFILE_DISABLE=1 tar -czvf $archive ./$dest/
 echo
 
 heading "Pushing $tag release to ${repo}..."
-gh release upload $tag $archive --repo "$repo"
+gh release create "$release" $archive -t $release --repo "$repo"
